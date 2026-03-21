@@ -1,6 +1,7 @@
 from fastapi import FastAPI, File, UploadFile, Form
 from fastapi.responses import JSONResponse
 from typing import Optional
+from fastapi.responses import PlainTextResponse
 import os
 import tempfile
 
@@ -45,7 +46,7 @@ async def transcribe(file: UploadFile = File(...), model: Optional[str] = Form("
     try:
         segments, info = _model.transcribe(tmp_path, beam_size=5)
         text = "".join([seg.text for seg in segments])
-        return {"text": text, "model": _model_name}
+        return PlainTextResponse(text)
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
     finally:
