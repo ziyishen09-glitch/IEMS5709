@@ -1,0 +1,24 @@
+ARG BASE_IMAGE=python:3.11-slim
+FROM ${BASE_IMAGE}
+
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+
+# Install system dependencies
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+       build-essential ffmpeg libsndfile1 git curl ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy application
+COPY api.py /app/api.py
+
+# Install Python dependencies
+RUN python -m pip install --upgrade pip \
+    && pip install --no-cache-dir fastapi "uvicorn[standard]" python-multipart faster-whisper
+
+EXPOSE 5092
+
+# Run the FastAPI app
+CMD ["uvicorn", "api:app", "--host", "0.0.0.0", "--port", "5092"]
