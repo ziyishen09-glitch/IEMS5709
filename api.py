@@ -1,56 +1,90 @@
-from fastapi import FastAPI, File, UploadFile, Form
-from fastapi.responses import JSONResponse
-from typing import Optional
-from fastapi.responses import PlainTextResponse
+from fastapi import FastAPI, File, Form, HTTPException, UploadFile
+from fastapi.responses import JSONResponse, PlainTextResponse
+from faster_whisper import WhisperModel
+from typing import Any, Dict, List, Optional
 import os
 import tempfile
 
-app = FastAPI()
+WORKING_MODEL = os.environ.get("WHISPER_MODEL_NAME", "medium")
+DEVICE = os.environ.get("WHISPER_DEVICE", "cuda")
+COMPUTE_TYPE = os.environ.get("WHISPER_COMPUTE_TYPE", "fp16")
+DEFAULT_TASK = os.environ.get("WHISPER_TASK", "transcribe")
+BEAM_SIZE = int(os.environ.get("WHISPER_BEAM_SIZE", "5"))
 
-# Load model lazily on first request to keep container lightweight until used
-_model = None
-_model_name = None
+app = FastAPI(title="Faster Whisper GPU ASR")
+
+_model: Optional[WhisperModel] = None
+_model_name = f"faster-whisper:{WORKING_MODEL}" if WORKING_MODEL else "faster-whisper"
+
+
+def _ensure_model_loaded() -> WhisperModel:
+    global _model
+    if _model is None:
+        _model = WhisperModel(WORKING_MODEL, device=DEVICE, compute_type=COMPUTE_TYPE)
+    return _model
+
+
+def _segment_to_dict(segment: Any) -> Dict[str, Any]:
+    return {
+        "id": getattr(segment, "id", None),
+        "start": getattr(segment, "start", None),
+        "end": getattr(segment, "end", None),
+        "text": getattr(segment, "text", ""),
+        "tokens": getattr(segment, "tokens", []),
+    }
+
+
+@app.on_event("startup")
+async def startup_event():
+    _ensure_model_loaded()
+
 
 @app.get("/health")
-async def health():
+async def health() -> Dict[str, str]:
     return {"status": "ok"}
 
+
 @app.get("/v1/models")
-async def models():
-    return [{"id": "faster-whisper", "description": "Faster Whisper transcription via faster-whisper"}]
+async def models() -> List[Dict[str, str]]:
+    return [
+        {
+            "id": "faster-whisper",
+            "description": "Faster Whisper transcription via faster-whisper",
+            "name": _model_name,
+        }
+    ]
+
 
 @app.post("/v1/audio/transcriptions")
-async def transcribe(file: UploadFile = File(...), model: Optional[str] = Form("faster-whisper")):
-    global _model, _model_name
-    # Only faster-whisper supported in this container
+async def transcribe(
+    file: UploadFile = File(...),
+    model: str = Form("faster-whisper"),
+    task: str = Form(DEFAULT_TASK),
+    language: Optional[str] = Form(None),
+):
     if model != "faster-whisper":
-        return JSONResponse(status_code=400, content={"error": "unsupported model"})
+        raise HTTPException(status_code=400, detail="unsupported model")
 
-    # Lazy load model
-    if _model is None:
-        try:
-            from faster_whisper import WhisperModel
-        except Exception as e:
-            return JSONResponse(status_code=500, content={"error": f"failed to import faster-whisper: {e}"})
-        # Use medium by default; set device to cpu
-        _model = WhisperModel("medium", device="cpu", compute_type="int8")
-        _model_name = "faster-whisper:medium"
+    whisper = _ensure_model_loaded()
 
-    # Save uploaded file to a temp file
     suffix = os.path.splitext(file.filename)[1] or ".wav"
     with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp:
-        tmp_path = tmp.name
-        contents = await file.read()
-        tmp.write(contents)
+        temp_path = tmp.name
+        tmp.write(await file.read())
 
     try:
-        segments, info = _model.transcribe(tmp_path, beam_size=5)
-        text = "".join([seg.text for seg in segments])
+        segments, info = whisper.transcribe(
+            temp_path,
+            beam_size=BEAM_SIZE,
+            task=task,
+            language=language,
+        )
+        text = "".join(segment.text for segment in segments).strip()
         return PlainTextResponse(text)
-    except Exception as e:
-        return JSONResponse(status_code=500, content={"error": str(e)})
+    except Exception as exc:
+        raise HTTPException(status_code=500, detail=str(exc))
     finally:
         try:
-            os.remove(tmp_path)
+            os.remove(temp_path)
         except Exception:
             pass
