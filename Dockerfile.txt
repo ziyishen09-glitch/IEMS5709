@@ -4,7 +4,9 @@ FROM ${BASE_IMAGE}
 
 ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1 \
     WHISPER_MODEL_NAME=medium WHISPER_DEVICE=cuda WHISPER_COMPUTE_TYPE=fp16 \
-    WHISPER_TASK=transcribe WHISPER_BEAM_SIZE=5
+    WHISPER_TASK=transcribe WHISPER_BEAM_SIZE=5 \
+    PIP_INDEX_URL=https://pypi.org/simple \
+    PIP_TRUSTED_HOST=pypi.org
 
 RUN apt-get update \
      && apt-get install -y --no-install-recommends \
