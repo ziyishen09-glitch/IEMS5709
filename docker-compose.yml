@@ -1,0 +1,34 @@
+services:
+  vllm:
+    image: ghcr.io/nvidia-ai-iot/vllm:latest-jetson-orin
+    shm_size: "8g"
+    ulimits:
+      memlock: -1
+      stack: 67108864
+    runtime: nvidia
+    volumes:
+      - /opt/models/Qwen3-4B-quantized.w4a16:/root/.cache/huggingface/Qwen3-4B-quantized.w4a16
+    command: >
+      vllm serve /root/.cache/huggingface/Qwen3-4B-quantized.w4a16
+        --gpu-memory-utilization 0.50
+        --max-model-len 4096
+        --max-num-batched-tokens 2048
+
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:main
+    ports:
+      - "3000:8080"
+    volumes:
+      - open-webui-data:/app/backend/data
+    # TODO: add depends_on so that open-webui starts after the backend services
+
+  asr:
+    image: faster-whisper:fastapi
+    # TODO: add runtime for GPU access
+
+  tts:
+    image: dustynv/kokoro-tts:fastapi-r36.4.0-cu128-24.04
+    # TODO: add runtime for GPU access
+
+volumes:
+  open-webui-data:
