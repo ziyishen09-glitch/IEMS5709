@@ -1,3 +1,5 @@
+version: "3.8"
+
 services:
   vllm:
     image: ghcr.io/nvidia-ai-iot/vllm:latest-jetson-orin
@@ -6,6 +8,10 @@ services:
       memlock: -1
       stack: 67108864
     runtime: nvidia
+    ports:
+      - "8000:8000"
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
     volumes:
       - /opt/models/Qwen3-4B-quantized.w4a16:/root/.cache/huggingface/Qwen3-4B-quantized.w4a16
     command: >
@@ -20,15 +26,26 @@ services:
       - "3000:8080"
     volumes:
       - open-webui-data:/app/backend/data
-    # TODO: add depends_on so that open-webui starts after the backend services
+    depends_on:
+      - vllm
+      - asr
+      - tts
 
   asr:
     image: faster-whisper:fastapi
-    # TODO: add runtime for GPU access
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    ports:
+      - "5092:5092"
 
   tts:
     image: dustynv/kokoro-tts:fastapi-r36.4.0-cu128-24.04
-    # TODO: add runtime for GPU access
+    runtime: nvidia
+    environment:
+      - NVIDIA_VISIBLE_DEVICES=all
+    ports:
+      - "8880:8880"
 
 volumes:
-  open-webui-data:
+  open-webui-data: {}
